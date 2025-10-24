@@ -1,0 +1,44 @@
+import time
+import json
+import random
+from kafka import KafkaProducer
+import polars as pl
+# --- Datos del dataset de compraventas ---
+def generate_compraventa_data():
+    df = pl.read_csv(
+        "rows.csv",
+        ignore_errors=True,
+        try_parse_dates=True,
+        low_memory=True,
+        rechunk=True,
+        columns= ["ANO", "COORDENADA_X", "COORDENADA_Y", "ID_COMPRAVENTA", "OBJECTID", "point"]
+    )
+
+    df = df.with_columns([
+        pl.col("ANO").cast(pl.Utf8).str.replace(",", "").cast(pl.Int64),
+        pl.col("COORDENADA_X").cast(pl.Utf8).str.replace_all(",", "").cast(pl.Float64),
+        pl.col("COORDENADA_Y").cast(pl.Utf8).str.replace_all(",", "").cast(pl.Float64),
+        pl.col("ID_COMPRAVENTA").cast(pl.Utf8).str.replace(",", "").cast(pl.Int64),
+        pl.col("OBJECTID").cast(pl.Utf8).str.replace(",", ".").cast(pl.Int64),
+        pl.col("point").cast(pl.String())
+    ])
+
+    # Convertir a lista para poder usar random.choice
+    rows = list(df.iter_rows(named=True))
+    row = random.choice(rows)
+    row["point"] = f"POINT({row['COORDENADA_X']} {row['COORDENADA_Y']})"
+    return row
+
+
+# --- Configurar el productor Kafka ---
+producer = KafkaProducer(
+    bootstrap_servers=['localhost:9092'],
+    value_serializer=lambda x: json.dumps(x).encode('utf-8')
+)
+
+# --- Enviar datos continuamente ---
+while True:
+    compraventa = generate_compraventa_data()
+    producer.send('compraventas', value=compraventa)
+    print(f"Enviado: {compraventa}")
+    time.sleep(2)
